@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
 
   import EventHistoryLegend from '$lib/components/lines-and-dots/event-history-legend.svelte';
+  import EventTimeFilter from '$lib/components/lines-and-dots/event-time-filter.svelte';
   import EventTypeFilter from '$lib/components/lines-and-dots/event-type-filter.svelte';
   import TimelineGraph from '$lib/components/lines-and-dots/svg/timeline-graph.svelte';
   import WorkflowError from '$lib/components/lines-and-dots/workflow-error.svelte';
@@ -14,11 +15,11 @@
   import { translate } from '$lib/i18n/translate';
   import { groupEvents } from '$lib/models/event-groups';
   import { clearActives } from '$lib/stores/active-events';
-  import { eventFilterSort } from '$lib/stores/event-view';
+  import { eventFilterSort, eventTimeFilter } from '$lib/stores/event-view';
   import {
     currentEventHistory,
-    filteredEventHistory,
     pauseLiveUpdates,
+    typeFilteredEventHistory,
   } from '$lib/stores/events';
   import { workflowRun } from '$lib/stores/workflow-run';
   import {
@@ -37,19 +38,59 @@
   $: {
     $eventFilterSort = urlParams.sort;
     $pauseLiveUpdates = urlParams.refresh_off;
+    $eventTimeFilter = {
+      startTime: urlParams.timeStart ? new Date(urlParams.timeStart) : null,
+      endTime: urlParams.timeEnd ? new Date(urlParams.timeEnd) : null,
+    };
   }
 
   $: reverseSort = $eventFilterSort === 'descending';
 
+  $: firstEventTime = (() => {
+    const first = $currentEventHistory[0];
+    return first?.eventTime ? new Date(first.eventTime as string) : null;
+  })();
+
+  $: lastEventTime = (() => {
+    const last = $currentEventHistory[$currentEventHistory.length - 1];
+    return last?.eventTime ? new Date(last.eventTime as string) : null;
+  })();
+
+  $: defaultStart =
+    firstEventTime ??
+    (workflow?.startTime ? new Date(workflow.startTime as string) : null);
+
+  $: workflowCompleted =
+    workflow && !workflow?.isRunning && !workflow?.isPaused;
+  $: defaultEnd = workflowCompleted
+    ? (lastEventTime ??
+      (workflow?.endTime ? new Date(workflow.endTime as string) : null))
+    : null;
+
   $: ascendingGroups = groupEvents(
-    $filteredEventHistory,
+    $typeFilteredEventHistory,
     'ascending',
     pendingActivities,
     pendingNexusOperations,
   );
 
+  $: groupsInWindow = (() => {
+    const startMs = $eventTimeFilter.startTime?.getTime() ?? null;
+    const endMs = $eventTimeFilter.endTime?.getTime() ?? null;
+    if (startMs === null && endMs === null) return ascendingGroups;
+    return ascendingGroups.filter((group) =>
+      group.eventList.some((event) => {
+        if (!event.eventTime) return false;
+        const evMs = new Date(event.eventTime as string).getTime();
+        if (startMs !== null && evMs < startMs) return false;
+        if (endMs !== null && evMs > endMs) return false;
+        return true;
+      }),
+    );
+  })();
+
   $: groups = orderGroupsByPending(
-    reverseSort ? [...ascendingGroups].reverse() : ascendingGroups,
+    reverseSort ? [...groupsInWindow].reverse() : groupsInWindow,
     reverseSort,
   );
 
@@ -110,11 +151,14 @@
     </div>
     <div class="flex items-center gap-2">
       <ToggleButtons>
+        <EventTimeFilter {defaultStart} {defaultEnd} />
         <ToggleButton
           leadingIcon={reverseSort ? 'descending' : 'ascending'}
           data-testid="zoom-in"
           on:click={onSort}
-          size="sm">{reverseSort ? 'Descending' : 'Ascending'}</ToggleButton
+          size="sm"
+          class="border-l-0"
+          >{reverseSort ? 'Descending' : 'Ascending'}</ToggleButton
         >
         <EventTypeFilter compact={false} />
         <ToggleButton
@@ -150,6 +194,8 @@
       {groups}
       viewportHeight={undefined}
       error={Boolean(workflowTaskFailedError)}
+      overrideStartTime={$eventTimeFilter.startTime?.toISOString()}
+      overrideEndTime={$eventTimeFilter.endTime?.toISOString()}
     />
   </div>
 </div>

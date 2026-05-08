@@ -24,6 +24,8 @@
   export let viewportHeight: number | undefined;
   export let readOnly = false;
   export let error: boolean = false;
+  export let overrideStartTime: string | undefined = undefined;
+  export let overrideEndTime: string | undefined = undefined;
 
   const { height, gutter, radius } = TimelineConfig;
 
@@ -37,7 +39,9 @@
       ? $fullEventHistory[0]?.eventTime
       : workflow.executionTime;
   $: startTime =
-    (!isWorkflowDelayed(workflow) && firstStartTime) || workflow.startTime;
+    overrideStartTime ||
+    (!isWorkflowDelayed(workflow) && firstStartTime) ||
+    workflow.startTime;
   $: timelineHeight =
     Math.max(height * (filteredGroups.length + 2), 120) + expandedGroupHeight;
   $: canvasHeight = timelineHeight + 120;
@@ -59,7 +63,7 @@
 
 <div
   id="event-history-timeline-graph"
-  class="relative h-auto overflow-auto border border-t-0 border-subtle bg-primary"
+  class="relative h-auto overflow-y-auto overflow-x-clip border border-t-0 border-subtle bg-primary"
   bind:clientWidth={canvasWidth}
   style={viewportHeight ? `max-height: ${viewportHeight}px;` : ''}
   on:scroll={handleScroll}
@@ -67,6 +71,7 @@
   <EndTimeInterval
     {workflow}
     {startTime}
+    {overrideEndTime}
     let:endTime
     let:duration
     let:currentTime
